@@ -1,0 +1,196 @@
+# No.3 PS IV Linear regression in Python (univariate regression with intercept)
+# Monte Carlo simulation (300 repetitions)
+# X ~ N(0,I)
+# eps (1) Normal(0,1); (2) Standard Cauchy; (3) Standard Exponential - 1
+# n = 50, 100
+
+import numpy as np 
+import matplotlib.pyplot as plt
+
+# Phase 1: set up the Monte Carlo simulation
+n_rep = 300
+
+v1_beta_50 = []
+v1_beta_100 = []
+
+v2_beta_50 = []
+v2_beta_100 = []
+
+v3_beta_50 = []
+v3_beta_100 = []
+
+tv1_50 = []
+tv1_100 = []
+
+tv2_50 = []
+tv2_100 = []
+
+tv3_50 = []
+tv3_100= []
+
+
+
+for i in range(n_rep):
+    # phase 2: create and estimate a linear regression model
+    cov = [[1, 0], [0, 1]]
+    mean = [0,0]
+    v1 = np.ones(50)
+    v2 = np.ones(100)
+    x_vector_50 = np.random.multivariate_normal(mean,cov, 50)
+    x_vector_100 = np.random.multivariate_normal(mean,cov, 100)
+    
+    #x vector and (alpha,beta) remains the same
+    x_50 = np.c_[v1, x_vector_50]
+    x_100 = np.c_[v2,x_vector_100]
+    
+    t_beta = np.array([1,0,1])
+    a = np.array([0,1,0])
+    #Three different DGP for ys
+    y1_vector_50 = np.dot(x_50, t_beta) + np.random.normal(0,1,50)
+    y1_vector_100 = np.dot(x_100 , t_beta)  + np.random.normal(0,1,100)
+    
+    y2_vector_50 = np.dot(x_50 , t_beta)  + np.random.standard_cauchy(50)
+    y2_vector_100 = np.dot(x_100 , t_beta) + np.random.standard_cauchy(100)
+    
+    y3_vector_50 = np.dot(x_50 , t_beta) + np.random.exponential(1,size = 50) - 1
+    y3_vector_100 = np.dot(x_100 , t_beta) + np.random.exponential(1,size = 100) -1 
+    
+    
+    y1_50 = np.array([y1_vector_50])
+    y1_100 = np.array([y1_vector_100])
+    
+    y2_50 = np.array([y2_vector_50])
+    y2_100 = np.array([y2_vector_100])
+    
+    y3_50 = np.array([y3_vector_50])
+    y3_100 = np.array([y3_vector_100])
+    
+    
+    #Var&Cov matrices & solve for betas
+    variance_x_50 = np.matmul(x_50.T,x_50)
+    variance_x_100 = np.matmul(x_100.T,x_100)
+    
+    #different cov for xy
+    covariance1_xy_50 = np.dot(x_50.T,y1_50.T)
+    covariance1_xy_100 = np.dot(x_100.T,y1_100.T)
+    
+    covariance2_xy_50 = np.dot(x_50.T,y2_50.T)
+    covariance2_xy_100 = np.dot(x_100.T,y2_100.T)
+    
+    covariance3_xy_50 = np.dot(x_50.T,y3_50.T)
+    covariance3_xy_100 = np.dot(x_100.T,y3_100.T)
+    
+    
+    #same matrix inv
+    matrix_inv_50 = np.linalg.inv(variance_x_50)
+    matrix_inv_100 = np.linalg.inv(variance_x_100)
+    
+    beta1_estimated_50 = np.dot(matrix_inv_50,covariance1_xy_50)
+    beta1_estimated_100 = np.dot(matrix_inv_100,covariance1_xy_100)
+    
+    beta2_estimated_50 = np.dot(matrix_inv_50,covariance2_xy_50)
+    beta2_estimated_100 = np.dot(matrix_inv_100,covariance2_xy_100)
+    
+    beta3_estimated_50 = np.dot(matrix_inv_50,covariance3_xy_50)
+    beta3_estimated_100 = np.dot(matrix_inv_100,covariance3_xy_100)
+    
+    
+    #residuals & sigma2_hat
+    #1
+    e1_50 = y1_50 - np.matmul(x_50,beta1_estimated_50).T
+    e1_100 = y1_100 - np.matmul(x_100,beta1_estimated_100).T
+    
+    s1_50 =  np.matmul(e1_50,e1_50.T)/(50-3)
+    s1_100 = np.matmul(e1_100,e1_100.T)/(100-3)
+    
+    t1_50 = np.dot(a,beta1_estimated_50.T[0])/(np.sqrt(s1_50 * np.dot(a,np.matmul(matrix_inv_50,a.T))))
+    tv1_50.append(t1_50)
+    
+    t1_100 = np.dot(a,beta1_estimated_100.T[0])/(np.sqrt(s1_100 * np.dot(a,np.matmul(matrix_inv_100,a.T))))
+    tv1_100.append(t1_100)
+    
+    #2
+    e2_50 = y2_50 - np.matmul(x_50,beta2_estimated_50).T
+    e2_100 = y2_100 - np.matmul(x_100,beta2_estimated_100).T
+    
+    s2_50 =  np.matmul(e2_50,e2_50.T)/(50-3)
+    s2_100 = np.matmul(e2_100,e2_100.T)/(100-3)
+    
+    t2_50 = np.dot(a,beta2_estimated_50.T[0])/(np.sqrt(s2_50 * np.dot(a,np.matmul(matrix_inv_50,a.T))))
+    tv2_50.append(t2_50)
+    
+    t2_100 = np.dot(a,beta2_estimated_100.T[0])/(np.sqrt(s2_100 * np.dot(a,np.matmul(matrix_inv_100,a.T))))
+    tv2_100.append(t2_100)
+    #3
+    e3_50 = y3_50 - np.matmul(x_50,beta3_estimated_50).T
+    e3_100 = y3_100 - np.matmul(x_100,beta3_estimated_100).T
+    
+    s3_50 =  np.matmul(e3_50,e3_50.T)/(50-3)
+    s3_100 = np.matmul(e3_100,e3_100.T)/(100-3)
+    
+    t3_50 = np.dot(a,beta3_estimated_50.T[0])/(np.sqrt(s3_50 * np.dot(a,np.matmul(matrix_inv_50,a.T))))
+    tv3_50.append(t3_50)
+    
+    t3_100 = np.dot(a,beta3_estimated_100.T[0])/(np.sqrt(s3_100 * np.dot(a,np.matmul(matrix_inv_100,a.T))))
+    tv3_100.append(t3_100)
+    # Phase 3: save both estimated parameters in seperate vectors
+    v1_beta_50.append(beta1_estimated_50)
+    v1_beta_100.append(beta1_estimated_100)
+    
+    v2_beta_50.append(beta2_estimated_50)
+    v2_beta_100.append(beta2_estimated_100)
+    
+    v3_beta_50.append(beta3_estimated_50)
+    v3_beta_100.append(beta3_estimated_100)
+
+# Phase 4: histogram using all calculated ts from the Monte Carlo simulation
+q = np.array([0.01,0.05,0.10])
+
+q1_50 = []
+tv1_50 = np.array(tv1_50)
+plt.hist(tv1_50.T[0][0],  bins=11)
+plt.xlabel("n=50,e~N(0,1)")
+for i in range(3):
+    q1_50.append((np.quantile(tv1_50,q[i]),"%f quantile" %q[i]))
+print(q1_50)
+
+q1_100 = []
+tv1_100 = np.array(tv1_100)
+plt.hist(tv1_100.T[0][0],  bins=11)
+plt.xlabel("n=100,e~N(0,1)")
+for i in range(3):
+    q1_100.append((np.quantile(tv1_100,q[i]),"%f quantile" %q[i]))
+print(q1_100)
+
+q2_50 = []
+tv2_50 = np.array(tv2_50)
+plt.hist(tv2_50.T[0][0],  bins=11)
+plt.xlabel("n=50,e~standard cauchy")
+for i in range(3):
+    q2_50.append((np.quantile(tv2_50,q[i]),"%f quantile" %q[i]))
+print(q2_50)
+
+q2_100 = []
+tv2_100 = np.array(tv2_100)
+plt.hist(tv2_100.T[0][0],  bins=11)
+plt.xlabel("n=100,e~standard cauchy")
+for i in range(3):
+    q2_100.append((np.quantile(tv2_100,q[i]),"%f quantile" %q[i]))
+print(q2_100)
+
+q3_50 = []
+tv3_50 = np.array(tv3_50)
+plt.hist(tv3_50.T[0][0],  bins=11)
+plt.xlabel("n=50,e~standard exponential-1")
+for i in range(3):
+    q3_50.append((np.quantile(tv3_50,q[i]),"%f quantile" %q[i]))
+print(q3_50)
+
+q3_100 = []
+tv3_100 = np.array(tv3_100)
+plt.hist(tv3_100.T[0][0],  bins=11)
+plt.xlabel("n=100,e~standard exponential-1")
+for i in range(3):
+    q3_100.append((np.quantile(tv3_100,q[i]),"%f quantile" %q[i]))
+print(q3_100)
+
