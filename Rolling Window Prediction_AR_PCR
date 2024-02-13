@@ -1,8 +1,9 @@
 ---
-title: "ECO590_HW1_Wang_Cihang"
+title: "Rolling Window Prediction_AR_PCR"
 output: html_document
 date: "2024-01-24"
 ---
+# This is the file conducting the rolling window prediction and comparing the performance of # AR and PCR models using FRED data.
 
 ```{r}
 # load package and define path
