@@ -1,0 +1,309 @@
+---
+title: "ECO590_HW1_Wang_Cihang"
+output: html_document
+date: "2024-01-24"
+---
+
+```{r}
+# load package and define path
+path = "/Users/cihangwang/Library/CloudStorage/OneDrive-UniversityofIllinois-Urbana/✨ SP2024/High Dimensional Metrics/Assignment/Assignment 1"
+
+packageName = c("dplyr", "forecast", "tseries", "TSA", "ggplot2", "POET", "tidyr")
+install_pack = function(packageName) {
+  for (i in 1:length(packageName)) {
+     if (!require(packageName[i], character.only = T)) {
+    install.packages(packageName[i])
+    library(packageName[i])
+  }
+}
+}
+
+install_pack(packageName)
+
+# load data
+fredData = read.csv(paste(path, "/fred-md data.csv", sep = ""))
+
+# keep variables that have full observations
+fredData = fredData[, colSums(is.na(fredData)) == 0]
+```
+# Data Transformation
+```{r}
+# initialize for a transformed dataframe
+fredTrans = data.frame(matrix(NA, nrow = 780, ncol = 105))
+colnames(fredTrans) = colnames(fredData)
+fredTrans$sasdate = fredData$sasdate
+
+# transform the data based on the suggested method
+print(unique(unlist(fredData[1, -1]))) # 1, 2, 3, 5, 6, 7
+
+# six methods mentioned
+m1 = function(x) {x}
+m2 = function(x) {c(NA, diff(x, differences = 1))}
+m3 = function(x) {c(NA, NA, diff(x, differences = 2))}
+m4 = function(x) {log(x)}
+m5 = function(x) {c(NA, diff(log(x), differences = 1))}
+m6 = function(x) {c(NA, NA, diff(log(x), differences = 2))}
+m7 = function(x) {c(NA, diff((x/dplyr::lag(x, n = 1) - 1), differences = 1))}
+
+methodList = list(m1 = m1, m2 = m2, m3 = m3, m4 = m4,
+                  m5 = m5, m6 = m6, m7 = m7)
+
+# build the transformation function
+testStation = function(x) {
+  method = x[1]
+  x = x[-1]
+  x = methodList[[method]](x)
+  return(x)
+  }
+ 
+
+fredTrans[-1, -1] = lapply(fredData[, -1], testStation)
+fredTrans = fredTrans[-c(1:3), ]
+```
+
+# Question (a)
+```{r}
+# rolling window = 372
+# build a loop to run the AR(4) model for each variable
+# in total there should exist 777 - 372 + 1 = 406 intervals
+predInt = data.frame(matrix(NA, nrow = 406, ncol = length(fredData) - 1))
+colnames(predInt) = colnames(fredData)[-1]
+
+# build a function to estimate the model and make a prediction
+armaPred = function(x, p, q=0) {
+  myData = data.frame(x,lag(x, 1), lag(x, 2), lag(x, 3), lag(x, 4))
+  nLag = 1
+  colnames(myData) = c("x", "x1", "x2", "x3", "x4")
+  myAIC   = AIC(lm(x ~ x1, data = myData))
+  formula = c("x ~ x1",
+              "x ~ x1 + x2",
+              "x ~ x1 + x2 + x3",
+              "x ~ x1 + x2 + x3 + x4")
+   
+  for (lag in 2:4) {
+     arModel = lm(formula[lag], data = myData)
+     if (AIC(arModel) < myAIC) {
+      nLag  = lag
+      myAIC = AIC(arModel)
+    }
+  }
+  arModel = lm(formula[nLag], data = myData)
+  pred = arModel$coefficients[1] +
+    sum(arModel$coefficients[2:length(arModel$coefficients)] * rev(x)[1:(length(arModel$coefficients) - 1)])
+
+}
+
+for (i in 1:406) {
+  for (j in 1:104) {
+     # predInt[i, j] = as.numeric(unlist(lapply(fredTrans[i:(i + 372 - 1), -1], armaPred, p = 4))) 
+    predInt[i, j] = armaPred(fredTrans[i:(i + 372 - 1), j + 1], p = 4)
+  }
+}
+```
+
+# Question (b)
+```{r}
+# initialize the second prediction holder
+predInt2 = data.frame(matrix(NA, nrow = 406, ncol = length(fredData) - 1))
+colnames(predInt2) = colnames(fredData)[-1]
+
+# build a new model to perform the analysis
+arFModel = function(x, pca) {
+  pca_data = data.frame(pca)
+  pca = data.frame(pca)
+  k = length(pca)
+  
+  # creating lagged variables
+  for (i in 1:k) {
+    pca_data[, paste("PC", i, "_lag1", sep = "")] = dplyr::lag(pca_data[, i], 1)
+    pca_data[, paste("PC", i, "_lag2", sep = "")] = dplyr::lag(pca_data[, i], 2)
+    pca_data[, paste("PC", i, "_lag3", sep = "")] = dplyr::lag(pca_data[, i], 3)
+    pca_data[, paste("PC", i, "_lag4", sep = "")] = dplyr::lag(pca_data[, i], 4)
+  }
+  
+  # select all pca and their lags
+  mydata = data.frame(cbind(x, 
+                            dplyr::lag(x, 1), 
+                            dplyr::lag(x, 2), 
+                            dplyr::lag(x, 3), 
+                            dplyr::lag(x, 4), 
+                            pca_data[-c(1:k)]))
+  
+  arFModel = lm(x ~., mydata)
+  
+  # make prediction
+  newdata = c(rev(x)[1:4],     as.numeric(unlist(pca[nrow(pca), ])),
+                               as.numeric(unlist(pca[nrow(pca) - 1, ])),
+                               as.numeric(unlist(pca[nrow(pca) - 2, ])),
+                               as.numeric(unlist(pca[nrow(pca) - 3, ])))
+  
+  pred2 = arFModel$coefficients[1] +  sum(arFModel$coefficients[2:length(arFModel$coefficients)] * newdata)
+}
+
+# loop over the rolling window
+k_list = c()
+for (i in 1:406) {
+  # compute the PCA for each rolling window
+  pca_result = prcomp(fredTrans[i:(i + 372 - 1) , -1], center = TRUE, scale. = TRUE)
+  
+  # use the ratio principle to determine the number of factors: Onatski (2010)
+  
+  k = which.max((dplyr::lag((pca_result$sdev)^2, 1)/(pca_result$sdev)^2)[2:10])
+
+  pca = pca_result$x[, 1:k]
+  # k_list = c(k_list, k)
+  
+  # use the function
+  predInt2[i, ] = as.numeric(unlist(lapply(fredTrans[i:(i + 372 - 1), -1], arFModel, pca = pca)))
+}
+```
+
+# Question (c)
+```{r}
+# one-step ahead forecasting error
+# plot the cumulative squared error for all variables?
+error1 = (data.frame(predInt[-406, ])  - data.frame(fredTrans[-c(1:372), -1]))^2
+error2 = (data.frame(predInt2[-406, ]) - data.frame(fredTrans[-c(1:372), -1]))^2
+```
+
+```{r}
+# group variables
+# Output and Income
+g1 = c("RPI", "W875RX1", "INDPRO", "IPFPNSS", "IPFINAL", "IPCONGD", "IPDCONGD", "IPNCONGD", "IPBUSEQ", "IPMAT", "IPDMAT", "IPNMAT", "IPMANSICS", "IPB51222s", "IPFUELS", "NAPMPI", "CUMFNS")
+
+# Labor Market
+g2 = c("HWI", "HWIURATIO", "CLF16OV", "CE16OV", "UNRATE", "UEMPMEAN", "UEMPLT5", "UEMP5TO14", "UEMP15OV", "UEMP15T26", "UEMP27OV", "CLAIMSx", "PAYEMS", "USGOOD", "CES1021000001", "USCONS", "MANEMP", "DMANEMP", "NDMANEMP", "SRVPRD", "USTPU", "USWTRADE", "USTRADE", "USFIRE", "USGOVT", "CES0600000007", "AWOTMAN", "AWHMAN", "NAPMEI", "CES0600000008", "CES2000000008", "CES3000000008")
+
+# Consumption and Orders
+g3 = c("HOUST", "HOUSTNE", "HOUSTMW", "HOUSTS", "HOUSTW", "PERMIT", "PERMITNE", "PERMITMW", "PERMITS", "PERMITW")
+
+# Orders and Inventories
+g4 = c("DPCERA3M086SBEA",  "CMRMTSPLx", "RETAILx", "NAPM", "NAPMNOI", "NAPMSDI",  "NAPMII", "ACOGNO", "AMDMNOx", "ANDENOx", "AMDMUOx", "BUSINVx","ISRATIOx", "UMCSENTx")
+
+# Money and Credit
+g5 = c("M1SL","M2SL","M2REAL","AMBSL", "TOTRESNS", "NONBORRES", "BUSLOANS", "REALLN", "NONREVSL", "CONSPI","MZMSL", "DTCOLNVHFNM", "DTCTHFNM", "INVEST")
+
+# Interest rate and Exchange Rates
+g6 = c("FEDFUNDS", "CP3Mx", "TB3MS", "TB6MS","GS1","GS5","GS10","AAA",
+"BAA", "COMPAPFFx", "TB3SMFFM", "TB6SMFFM", "T1YFFM", "T5YFFM" ,"T10YFFM", "AAAFFM", "BAAFFM", "TWEXMMTH", "EXSZUSx", "EXJPUSx", "EXUSUKx", "EXCAUSx")
+
+# Prices
+g7 = c("PPIFGS","PPIFCG","PPIITM","PPICRM","OILPRICEx","PPICMM",
+"NAPMPRI", "CPIAUCSL", "CPIAPPSL", "CPITRNSL", "CPIMEDSL", "CUSR0000SAC", "CUUR0000SAD", "CUSR0000SAS", "CPIULFSL", "CUUR0000SA0L2", "CUSR0000SA0L5", "PCEPI", "DDURRG3M086SBEA", "DNDGRG3M086SBEA", "DSERRG3M086SBEA")
+
+# Stock Market
+g8 = c("S.P.500", "S.P..indust", "S.P.div.yield", "S.P.PE.ratio")
+
+group = list(g1, g2, g3, g4, g5, g6, g7, g8)
+groupName = c("Output and Income", "Labor Market", "Consumption and Orders",
+              "Orders and Inventories", "Money and Credit",
+              "Interest rate and Exchange Rates", "Prices",
+              "Stock Market")
+
+## group errors
+error1[, "errAllVar1"] = rowSums(error1)
+error2[, "errAllVar2"] = rowSums(error2)
+
+error1[, "rwindow"] = 2:406
+error2[, "rwindow"] = 2:406
+
+# for each group
+for (i in 1:8) {
+  error1[, groupName[i]] = rowSums(error1[colnames(error1) %in% group[[i]]])
+  error2[, groupName[i]] = rowSums(error2[colnames(error2) %in% group[[i]]])
+}
+
+# cumulative error
+for (i in 1:8) {
+  error1[, groupName[i]] = cumsum(error1[, groupName[i]])
+  error2[, groupName[i]] = cumsum(error2[, groupName[i]])
+}
+
+error1_long = pivot_longer(error1[, 106:114], cols = colnames(error1[, 107:114]), names_to = "group", values_to = "value")
+
+error2_long = pivot_longer(error2[, 106:114], cols = colnames(error1[, 107:114]), names_to = "group", values_to = "value")
+```
+
+```{r}
+## plot
+# model 1
+ggplot(error1_long, aes(x = rwindow, y = value)) +
+  geom_line() +
+  facet_wrap(~group, scales = "free_y") +
+  theme_bw() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# model2
+ggplot(error2_long, aes(x = rwindow, y = value)) +
+  geom_line() +
+  facet_wrap(~group, scales = "free_y") +
+  theme_bw() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# plot against each other
+error1_long[, "id"] = "mod1"
+error2_long[, "id"] = "mod2"
+errorTotal_long = rbind(error1_long, error2_long)
+
+```
+
+```{r}
+# 1
+ggplot(errorTotal_long[errorTotal_long$group == groupName[1], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 2
+ggplot(errorTotal_long[errorTotal_long$group == groupName[2], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 3
+ggplot(errorTotal_long[errorTotal_long$group == groupName[3], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 4
+ggplot(errorTotal_long[errorTotal_long$group == groupName[4], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 5
+ggplot(errorTotal_long[errorTotal_long$group == groupName[5], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 6
+ggplot(errorTotal_long[errorTotal_long$group == groupName[6], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 7
+ggplot(errorTotal_long[errorTotal_long$group == groupName[7], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+
+# 8
+ggplot(errorTotal_long[errorTotal_long$group == groupName[8], ], aes(x = rwindow, y = value, group = id)) +
+  geom_line(aes(linetype = as.factor(id))) +
+  theme_minimal() +
+  scale_x_continuous(name = "Rolling Window") +
+  scale_y_continuous(name = "MSE")
+```
+
